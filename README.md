@@ -171,6 +171,36 @@ async def main():
 asyncio.run(main())
 ```
 
+## 🌐 REST API (Postman / HTTP)
+
+An optional FastAPI server wraps the library so it can be called over HTTP from
+Postman, curl, or any client.
+
+```bash
+pip install -r requirements-api.txt
+uvicorn nepse_data_api.api.app:app --reload --port 8000
+```
+
+- Interactive docs: `http://localhost:8000/docs`
+- OpenAPI schema: `http://localhost:8000/openapi.json`
+- Health check: `http://localhost:8000/health`
+
+**Import into Postman:** `Import → Link →` `http://localhost:8000/openapi.json`
+to auto-generate a collection covering every endpoint.
+
+A single shared `Nepse` client is created at startup and access is serialised
+with a lock, so authentication happens once and the synchronous client is used
+safely across concurrent requests. Example calls:
+
+```
+GET  /market/status
+GET  /top/gainers?limit=10
+GET  /stocks?date=2026-02-12
+GET  /securities/NABIL/depth
+GET  /securities/58/chart?start_date=2026-01-01&end_date=2026-06-01
+GET  /marketcap?date=2026-04-24
+```
+
 ## 📊 Performance
 
 | Operation | Fresh Request | Cached | Improvement |
