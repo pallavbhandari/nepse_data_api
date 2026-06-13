@@ -746,13 +746,25 @@ class Nepse:
             if cached: return cached
         try:
             # Add timeout to prevent hanging (company charts can be slow/timeout)
-            response = self.session.get(url, headers=self._get_auth_headers(), timeout=30)
+            if security_id == 58:
+                # Index graph is a GET with query params.
+                response = self.session.get(url, headers=self._get_auth_headers(), timeout=30)
+            else:
+                # Company graphdata is a POST carrying the base-`e` payload id
+                # (same scheme as security details), with a GET fallback.
+                payload = {"id": self._get_security_payload_id(datetime.now())}
+                response = self.session.post(
+                    url, headers=self._get_auth_headers(), json=payload, timeout=30
+                )
+                if response.status_code >= 400:
+                    response = self.session.get(
+                        url, headers=self._get_auth_headers(), timeout=30
+                    )
             response.raise_for_status()
             data = response.json()
-            
+
             # Local filtering for company charts if dates provided
             if security_id != 58 and start_date and end_date and data:
-                from datetime import datetime
                 start_ts = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp() * 1000)
                 end_ts = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp() * 1000)
                 # Assuming data has 't' field for timestamp

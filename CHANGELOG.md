@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0.6] - 2026-06-13
+
+### Fixed
+- `get_historical_chart(security_id)` company charts now POST
+  `/api/nots/market/graphdata/{id}` with the base-`e` payload id (same scheme
+  as security details), with a GET fallback. The NEPSE index branch (id 58)
+  remains a GET. Also removed a redundant function-local `datetime` import that
+  would have shadowed the module import and raised `UnboundLocalError`.
+
+---
+
 ## [1.0.0.5] - 2026-06-13
 
 ### Fixed
