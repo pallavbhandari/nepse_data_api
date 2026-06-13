@@ -125,7 +125,17 @@ class Nepse:
     """
     
     BASE_URL = "https://www.nepalstock.com.np"
-    
+
+    # Fixed lookup table embedded in NEPSE's client, used to derive POST
+    # payload ids from the market-status id.
+    DUMMY_DATA = [
+        147, 117, 239, 143, 157, 312, 161, 612, 512, 804, 411, 527, 170, 511, 421, 667, 764, 621, 301, 106,
+        133, 793, 411, 511, 312, 423, 344, 346, 653, 758, 342, 222, 236, 811, 711, 611, 122, 447, 128, 199,
+        183, 135, 489, 703, 800, 745, 152, 863, 134, 211, 142, 564, 375, 793, 212, 153, 138, 153, 648, 611,
+        151, 649, 318, 143, 117, 756, 119, 141, 717, 113, 112, 146, 162, 660, 693, 261, 362, 354, 251, 641,
+        157, 178, 631, 192, 734, 445, 192, 883, 187, 122, 591, 731, 852, 384, 565, 596, 451, 772, 624, 691
+    ]
+
     def __init__(self, cache_ttl: int = 30, enable_cache: bool = True,
                  token_validity: int = 45, refresh_validity: int = 600):
         """
@@ -685,9 +695,9 @@ class Nepse:
 
         data = {}
         try:
-            # Primary: POST with the computed payload id (payload id ignores
-            # the security id, but we pass it through for clarity).
-            payload = {"id": self._get_floorsheet_payload_id(security_id, datetime.now())}
+            # Primary: POST with the security-detail payload id (base `e`,
+            # no salt term -- distinct from the floorsheet scheme).
+            payload = {"id": self._get_security_payload_id(datetime.now())}
             response = self.session.post(url, headers=self._get_auth_headers(), json=payload)
             response.raise_for_status()
             data = response.json()
@@ -1009,40 +1019,47 @@ class Nepse:
             self.security_id_map = {}
             
             
+    def _get_payload_base(self, date_obj: datetime):
+        """Compute the base id ``e`` shared by NEPSE's POST payload schemes.
+
+        ``e = DUMMY_DATA[marketId] + marketId + 2 * day``. The market-status id
+        endpoints (e.g. security/company details) use this value directly as
+        the payload ``id``; the floorsheet/scrips scheme layers an extra salt
+        term on top (see ``_get_floorsheet_payload_id``).
+
+        Returns the tuple ``(e, day)``.
+        """
+        status = self.get_market_status()
+        dummy_id = int(status.get('id', 147))
+        day = date_obj.day
+        try:
+            val = self.DUMMY_DATA[dummy_id % len(self.DUMMY_DATA)]
+        except Exception:
+            val = 147
+        return val + dummy_id + 2 * day, day
+
+    def _get_security_payload_id(self, date_obj: datetime):
+        """Payload id for the security/company detail POST endpoints.
+
+        These use the plain base value ``e`` with no salt term. Verified
+        against a live capture (marketId 80, day 13 -> 263).
+        """
+        e, _ = self._get_payload_base(date_obj)
+        return int(e)
+
     def _get_floorsheet_payload_id(self, company_id: int, date_obj: datetime):
         """
         Generate strict payload ID for floorsheet using NEPSE's specific salt logic.
         """
-        # 1. Get Base Market ID (Dummy ID)
-        status = self.get_market_status()
-        dummy_id = int(status.get('id', 147))
-        
-        # 2. Get Day
-        day = date_obj.day
-        
-        # 3. DUMMY_DATA (Embedded)
-        DUMMY_DATA = [
-            147, 117, 239, 143, 157, 312, 161, 612, 512, 804, 411, 527, 170, 511, 421, 667, 764, 621, 301, 106,
-            133, 793, 411, 511, 312, 423, 344, 346, 653, 758, 342, 222, 236, 811, 711, 611, 122, 447, 128, 199,
-            183, 135, 489, 703, 800, 745, 152, 863, 134, 211, 142, 564, 375, 793, 212, 153, 138, 153, 648, 611,
-            151, 649, 318, 143, 117, 756, 119, 141, 717, 113, 112, 146, 162, 660, 693, 261, 362, 354, 251, 641,
-            157, 178, 631, 192, 734, 445, 192, 883, 187, 122, 591, 731, 852, 384, 565, 596, 451, 772, 624, 691
-        ]
-        
-        try:
-            val = DUMMY_DATA[dummy_id % len(DUMMY_DATA)]
-        except:
-            val = 147
-            
-        e = val + dummy_id + 2 * day
-        
-        # 4. Salt Logic
+        e, day = self._get_payload_base(date_obj)
+
+        # Salt logic (layered on top of the base id)
         salt_index = 1 if e % 10 < 4 else 3
-        
+
         # Ensure we have salts
         if not self.salts:
             self.authenticate()
-            
+
         return int(e + self.salts[salt_index] * day - self.salts[salt_index - 1])
 
     def clear_cache(self):

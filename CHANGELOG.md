@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0.5] - 2026-06-13
+
+### Fixed
+- `get_security_details(security_id)` now sends the correct POST payload id.
+  The security/company detail endpoints use the plain base id
+  `e = DUMMY_DATA[marketId] + marketId + 2*day` with **no** salt term, which is
+  distinct from the floorsheet/scrips scheme that layers an extra salt term on
+  top. Previously the floorsheet generator was reused, producing a wrong id.
+  Verified against a live capture (marketId 80, day 13 -> 263).
+
+### Changed
+- Extracted `DUMMY_DATA` to a class constant and factored the shared base-id
+  computation into `_get_payload_base()`, with `_get_security_payload_id()` and
+  `_get_floorsheet_payload_id()` building on it.
+
+---
+
 ## [1.0.0.4] - 2026-06-13
 
 ### Fixed

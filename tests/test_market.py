@@ -1,4 +1,5 @@
 import time
+from datetime import datetime
 import pytest
 from unittest.mock import MagicMock, patch
 from nepse_data_api.market import Nepse
@@ -102,3 +103,30 @@ class TestTokenFreshness:
             nepse._get_auth_headers()
             nepse._get_auth_headers()
             assert m_refresh.call_count - before == 2
+
+
+class TestPayloadIds:
+    """Payload-id derivation, locked to a live NEPSE capture.
+
+    Capture: marketId=80, day=13 -> security id 263; floorsheet id 108031
+    with salts [77573, 14257, 79787, 20211, 46849].
+    """
+
+    def _client(self):
+        with patch.object(Nepse, "authenticate", autospec=True) as m:
+            def fake(self):
+                self.access_token = "T"
+                self.salts = [77573, 14257, 79787, 20211, 46849]
+                self.token_timestamp = int(time.time())
+            m.side_effect = fake
+            return Nepse(enable_cache=False)
+
+    def test_security_payload_id_is_base_e(self):
+        nepse = self._client()
+        with patch.object(Nepse, "get_market_status", return_value={"id": 80}):
+            assert nepse._get_security_payload_id(datetime(2026, 6, 13)) == 263
+
+    def test_floorsheet_payload_id_adds_salt_term(self):
+        nepse = self._client()
+        with patch.object(Nepse, "get_market_status", return_value={"id": 80}):
+            assert nepse._get_floorsheet_payload_id(0, datetime(2026, 6, 13)) == 108031
