@@ -126,18 +126,30 @@ class Nepse:
     
     BASE_URL = "https://www.nepalstock.com.np"
     
-    def __init__(self, cache_ttl: int = 30, enable_cache: bool = True):
+    def __init__(self, cache_ttl: int = 30, enable_cache: bool = True,
+                 token_validity: int = 45, refresh_validity: int = 600):
         """
         Initialize with optional caching
-        
+
         Args:
             cache_ttl: Cache time-to-live in seconds (default: 30)
             enable_cache: Enable/disable caching (default: True)
+            token_validity: Seconds an access token is considered fresh before
+                it is refreshed on the next call (default: 45). Set to 0 to
+                force a refresh ahead of every request.
+            refresh_validity: Seconds before the refresh token itself is treated
+                as stale, triggering a full re-authentication instead of a
+                lightweight refresh (default: 600).
         """
         self.session = requests.Session()
         self.token_parser = NepseTokenParser()
         self.cache = CacheManager(cache_ttl) if enable_cache else None
-        
+
+        # Token freshness configuration
+        self.token_validity = token_validity
+        self.refresh_validity = refresh_validity
+        self._token_refreshing = False
+
         # State
         self.access_token = None
         self.refresh_token = None
@@ -168,14 +180,60 @@ class Nepse:
         self.token_timestamp = int(time.time())
 
     def _get_auth_headers(self):
-        """Construct headers with Salter authorization"""
-        if not self.access_token:
-            self.authenticate()
+        """Construct headers with Salter authorization.
+
+        Every authenticated request flows through here, so this is where token
+        freshness is enforced: a stale token is refreshed (or re-authenticated)
+        before the header is built, guaranteeing each call carries a fresh
+        token.
+        """
+        self._ensure_token_fresh()
         return {
             "Authorization": f"Salter {self.access_token}",
             "Content-Type": "application/json",
             "User-Agent": self.session.headers["User-Agent"]
         }
+
+    def _ensure_token_fresh(self):
+        """Refresh the access token if it is missing or older than its validity.
+
+        Prefers the lightweight refresh-token endpoint while the refresh token
+        is still good, and falls back to a full re-authentication whenever the
+        refresh token is stale or the refresh attempt fails. A re-entry guard
+        prevents recursion, since ``refresh_auth_token`` itself builds auth
+        headers.
+        """
+        # The refresh/authenticate calls below build headers, which re-enters
+        # this method; the guard makes those nested calls a no-op.
+        if self._token_refreshing:
+            return
+
+        if not self.access_token or not self.salts:
+            self.authenticate()
+            return
+
+        age = int(time.time()) - self.token_timestamp
+        if age < self.token_validity:
+            return  # still fresh
+
+        self._token_refreshing = True
+        try:
+            if age < self.refresh_validity:
+                # Access token stale but refresh token still valid.
+                data = self.refresh_auth_token()
+                if not data or not self.access_token:
+                    self.authenticate()
+            else:
+                # Refresh token itself is stale; do a full re-auth.
+                self.authenticate()
+        except Exception as e:
+            print(f"Token refresh failed, re-authenticating: {e}")
+            try:
+                self.authenticate()
+            except Exception as e2:
+                print(f"Re-authentication failed: {e2}")
+        finally:
+            self._token_refreshing = False
 
     def _cached_get(self, cache_key: str, url: str, ttl: Optional[int] = None):
         """Get with caching support"""
@@ -704,10 +762,17 @@ class Nepse:
             token_data = response.json()
             if token_data and 'accessToken' in token_data:
                 self.access_token = token_data['accessToken']
-                if 'serverTime' in token_data:
-                    self.token_timestamp = int(token_data['serverTime'] / 1000)
+                if 'refreshToken' in token_data:
+                    self.refresh_token = token_data['refreshToken']
                 if 'salt' in token_data:
                     self.salts = token_data['salt']
+                # Always mark the token as freshly issued; serverTime is used
+                # when present, otherwise fall back to local time so freshness
+                # tracking keeps working.
+                if 'serverTime' in token_data:
+                    self.token_timestamp = int(token_data['serverTime'] / 1000)
+                else:
+                    self.token_timestamp = int(time.time())
             return token_data
         except Exception as e:
             print(f"Error refreshing token: {e}")

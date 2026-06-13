@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.0.0.3] - 2026-06-13
+
+### Added
+- Automatic token freshness on every API call. `_get_auth_headers()` now
+  refreshes a stale access token before each request via the lightweight
+  refresh-token endpoint, falling back to a full re-authentication when the
+  refresh token itself is stale or the refresh fails. Configurable through new
+  `Nepse(token_validity=45, refresh_validity=600)` parameters (set
+  `token_validity=0` to force a refresh ahead of every request).
+
+---
+
 ## [1.0.0.2] - 2026-04-27
 
 ### Added
