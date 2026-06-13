@@ -1,3 +1,3 @@
 """Version information for nepse-data-api package."""
 
-__version__ = "1.0.0.3"
+__version__ = "1.0.0.4"

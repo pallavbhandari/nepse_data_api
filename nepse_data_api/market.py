@@ -670,23 +670,40 @@ class Nepse:
             return []
 
     def get_security_details(self, security_id: int, use_cache: bool = True):
-        """Get detailed info for specific security by ID"""
+        """Get detailed info for specific security by ID.
+
+        NEPSE serves this via a POST carrying a computed payload ``id`` (the
+        same salt/market-id/day scheme used by the today-price and floorsheet
+        endpoints). A GET fallback is kept in case a given deployment still
+        accepts the simpler form.
+        """
         url = f"{self.BASE_URL}/api/nots/security/{security_id}"
         cache_key = f"sec_details_{security_id}"
         if use_cache and self.cache:
             cached = self.cache.get(cache_key)
             if cached: return cached
+
+        data = {}
         try:
-            # Changed from POST to GET based on audit
-            response = self.session.get(url, headers=self._get_auth_headers())
+            # Primary: POST with the computed payload id (payload id ignores
+            # the security id, but we pass it through for clarity).
+            payload = {"id": self._get_floorsheet_payload_id(security_id, datetime.now())}
+            response = self.session.post(url, headers=self._get_auth_headers(), json=payload)
             response.raise_for_status()
             data = response.json()
-            if self.cache and use_cache:
-                self.cache.set(cache_key, data, ttl=3600)
-            return data
         except Exception as e:
-            print(f"Error fetching security details for {security_id}: {e}")
-            return {}
+            print(f"POST security details failed for {security_id}, trying GET: {e}")
+            try:
+                response = self.session.get(url, headers=self._get_auth_headers())
+                response.raise_for_status()
+                data = response.json()
+            except Exception as e2:
+                print(f"Error fetching security details for {security_id}: {e2}")
+                return {}
+
+        if data and self.cache and use_cache:
+            self.cache.set(cache_key, data, ttl=3600)
+        return data
 
     def get_historical_chart(self, security_id: int, start_date: str = None, end_date: str = None, use_cache: bool = True):
         """
