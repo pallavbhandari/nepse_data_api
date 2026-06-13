@@ -1,0 +1,6 @@
+# Core runtime dependencies for the nepse-data-api library.
+# (Mirrors the [project].dependencies in pyproject.toml.)
+requests>=2.31.0
+pywasm>=1.0.8
+aiohttp>=3.9.0
+websockets>=10.0
